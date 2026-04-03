@@ -77,7 +77,8 @@ export class GoogleSheetsService implements OnModuleInit {
   constructor() {
     const credentials = JSON.parse(
       fs.readFileSync(
-        path.resolve(__dirname, '../../credentials.json'),
+        process.env.GOOGLE_CREDENTIALS_PATH ||
+          path.resolve(__dirname, '../../credentials.json'),
         'utf-8',
       ),
     );

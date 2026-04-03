@@ -74,8 +74,14 @@ export class WebhookService {
 
     if (!rawText || !conversationId || !contactId) return { status: 'no_data' };
 
-    // ── Registrar contacto siempre, agente encendido o no ─────────────────
-    this.contactTracker.registerIfNew(contactId, nombre); // ← solo estos dos
+    // ── Bloquear proveedores antes de todo ────────────────────────────────
+    if (this.contactTracker.isBlocked(contactId)) {
+      console.log(`🚫 Proveedor ignorado: [${contactId}]`);
+      return { status: 'blocked' };
+    }
+
+    // ── Registrar contacto siempre ────────────────────────────────────────
+    this.contactTracker.registerIfNew(contactId, nombre);
     this.campaignTracker.notifyResponded(contactId);
 
     // ── Comprobante — takeover independiente del agente ───────────────────

@@ -1,19 +1,26 @@
+// src/webhook/webhook.module.ts
 import { Module } from '@nestjs/common';
 import { WebhookController } from './webhook.controller';
-import { GoogleSheetsService } from 'src/google-sheets/google-sheets.service';
-import { OpenaiService } from 'src/openai/openai.service';
-import { ContactTrackerService } from 'src/contact-tracker/contact-tracker.service';
-import { MessageGuardService } from 'src/message/message-guard.service';
-import { HistoryService } from 'src/history/history.service';
+import { WebhookService } from './webhook.service';
+import { AgentModule } from '../agent/agent.module';
+import { ContactsModule } from '../contacts/contacts.module';
+import { HistoryModule } from '../history/history.module';
+import { MessageGuardModule } from '../message-guard/message-guard.module';
+import { ConfigModule } from '../config/config.module';
+import { OpenaiModule } from '../openai/openai.module';
+import { CampaignsModule } from 'src/campaigns/campaigns.module';
 
 @Module({
-  controllers: [WebhookController],
-  providers: [
-    ContactTrackerService,
-    GoogleSheetsService,
-    HistoryService,
-    MessageGuardService,
-    OpenaiService,
+  imports: [
+    AgentModule,
+    ContactsModule,
+    HistoryModule,
+    MessageGuardModule,
+    ConfigModule,
+    OpenaiModule,
+    CampaignsModule,
   ],
+  controllers: [WebhookController],
+  providers: [WebhookService],
 })
 export class WebhookModule {}

@@ -6,7 +6,13 @@ import Fuse from 'fuse.js';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-export type Intent = 'COMPRA' | 'PAGO' | 'SOPORTE' | 'INFO' | 'OFFTOPIC';
+export type Intent =
+  | 'COMPRA'
+  | 'PAGO'
+  | 'SOPORTE'
+  | 'INFO'
+  | 'OFFTOPIC'
+  | 'CONVERSACIONAL';
 
 export interface ProductoDetalle {
   nombre: string;
@@ -29,6 +35,7 @@ export interface ProductoRow {
   precio: string;
   reglasVenta: string;
   reglasCliente: string;
+  keywords: string;
 }
 
 export interface PagoRow {
@@ -92,7 +99,7 @@ export class GoogleSheetsService implements OnModuleInit {
       const response = await this.sheets.spreadsheets.values.batchGet({
         spreadsheetId: this.spreadsheetId,
         ranges: [
-          'DB_Productos!A2:E',
+          'DB_Productos!A2:F',
           'DB_Pagos!A2:D',
           'DB_Info!A2:D',
           'DB_Config!A2:B',
@@ -108,6 +115,7 @@ export class GoogleSheetsService implements OnModuleInit {
         precio: r[2] || '',
         reglasVenta: r[3] || '',
         reglasCliente: r[4] || '', // ← columna E
+        keywords: r[5] || '',
       }));
 
       this.cache.pagos = rawPagos.map((r: string[]) => ({
@@ -137,8 +145,8 @@ export class GoogleSheetsService implements OnModuleInit {
       );
 
       this.fuseProductos = new Fuse(this.cache.productos, {
-        keys: ['nombre'],
-        threshold: 0.2,
+        keys: ['nombre', 'keywords'],
+        threshold: 0.4,
         minMatchCharLength: 3,
       });
 
@@ -164,10 +172,23 @@ export class GoogleSheetsService implements OnModuleInit {
     if (!productoNormalizado) return null;
     const query = productoNormalizado.toLowerCase().trim();
 
+    // 1. Match exacto por nombre
     let match = this.cache.productos.find((p) =>
       p.nombre.toLowerCase().includes(query),
     );
 
+    // 2. Match exacto por keyword ← nuevo
+    if (!match) {
+      match = this.cache.productos.find((p) =>
+        p.keywords
+          .toLowerCase()
+          .split(',')
+          .map((k) => k.trim())
+          .includes(query),
+      );
+    }
+
+    // 3. Fuse fuzzy
     if (!match && this.fuseProductos) {
       const results = this.fuseProductos.search(query);
       if (results.length > 0) match = results[0].item;

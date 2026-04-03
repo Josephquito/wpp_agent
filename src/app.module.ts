@@ -1,13 +1,14 @@
+// src/app.module.ts
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { WebhookModule } from './webhook/webhook.module';
-import { GoogleSheetsService } from './google-sheets/google-sheets.service';
-import { OpenaiService } from './openai/openai.service';
+import { AgentModule } from './agent/agent.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 
 @Module({
-  imports: [WebhookModule],
+  imports: [WebhookModule, AgentModule, CampaignsModule],
   controllers: [AppController],
-  providers: [AppService, GoogleSheetsService, OpenaiService],
+  providers: [AppService],
 })
 export class AppModule {}

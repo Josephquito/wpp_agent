@@ -1,42 +1,42 @@
 // src/webhook/webhook.controller.ts
 import {
   Controller,
+  Get,
   Post,
   Body,
-  Get,
-  HttpCode,
+  Query,
+  Res,
   HttpStatus,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { WebhookService } from './webhook.service';
-import { GoogleSheetsService } from '../config/google-sheets.service';
 
 @Controller('webhook')
 export class WebhookController {
-  constructor(
-    private readonly webhookService: WebhookService,
-    private readonly sheetsService: GoogleSheetsService,
-  ) {}
+  constructor(private readonly webhookService: WebhookService) {}
 
-  @Post()
-  async receiveMessage(@Body() body: any): Promise<{ status: string }> {
-    if (body?.event !== 'message_created') return { status: 'ignored' };
+  // ── Verificación inicial del webhook (Meta la llama UNA vez al configurarlo) ──
+  @Get()
+  verifyWebhook(
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') token: string,
+    @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
+  ) {
+    const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
-    if (body?.message_type === 'outgoing') {
-      const esBot =
-        body?.sender?.name === 'Chatwoot' &&
-        body?.content_attributes?.external_echo !== true;
-      if (esBot) return { status: 'ignored' };
-      return this.webhookService.handleAgentMessage(body);
+    if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+      console.log('✅ Webhook verificado por Meta');
+      return res.status(HttpStatus.OK).send(challenge);
     }
 
-    if (body?.message_type !== 'incoming') return { status: 'ignored' };
-    return this.webhookService.handleIncomingMessage(body);
+    console.log('❌ Verificación de webhook fallida — token no coincide');
+    return res.status(HttpStatus.FORBIDDEN).send('Forbidden');
   }
 
-  @Get('refresh')
-  @HttpCode(HttpStatus.OK)
-  async refreshCache(): Promise<{ message: string }> {
-    await this.sheetsService.refreshCache();
-    return { message: '✅ Caché actualizada.' };
+  // ── Recepción de mensajes/eventos de WhatsApp ──
+  @Post()
+  async receiveMessage(@Body() body: any): Promise<{ status: string }> {
+    return this.webhookService.handleIncomingMessage(body);
   }
 }

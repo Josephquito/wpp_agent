@@ -1,58 +1,96 @@
 // src/contacts/contact-tracker.service.ts
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import axios from 'axios';
+import { SheetsService } from '../google/sheets.service';
+import { ContactsService } from '../google/contacts.service';
+import { normalizePhone } from '../common/normalize-phone';
+
+const UNA_HORA = 3600000;
+const PATRON_CLIENTE = /^cliente\s+(\d+)$/i;
 
 @Injectable()
 export class ContactTrackerService implements OnModuleInit {
   private knownContacts = new Set<string>();
-  private blockedNumbers = new Set<string>();
+  private usedClienteNumbers = new Set<number>();
+
+  constructor(
+    private readonly sheetsService: SheetsService,
+    private readonly contactsService: ContactsService,
+  ) {}
 
   async onModuleInit() {
-    await this.loadBlockedNumbers();
-    setInterval(() => this.loadBlockedNumbers(), 3600000);
+    await this.syncFromGoogleContacts();
+    setInterval(() => this.syncFromGoogleContacts(), UNA_HORA);
   }
 
-  private async loadBlockedNumbers(): Promise<void> {
+  /**
+   * Trae TODOS los contactos reales desde Google Contacts, sobrescribe
+   * la pestaña CONTACTOS del Sheet, recarga el Set de teléfonos en
+   * memoria, y recalcula qué números "Cliente N" ya están en uso.
+   */
+  private async syncFromGoogleContacts(): Promise<void> {
     try {
-      const res = await axios.get(
-        `${process.env.INTRANET_URL}/suppliers/contacts`,
-        {
-          headers: { 'x-api-key': process.env.INTRANET_API_KEY },
-          timeout: 5000,
-        },
+      const contactos = await this.contactsService.listAllContacts();
+      await this.sheetsService.overwriteContacts(contactos);
+
+      this.knownContacts = new Set(contactos.map((c) => c.telefono));
+
+      this.usedClienteNumbers = new Set();
+      for (const c of contactos) {
+        const match = c.nombre.match(PATRON_CLIENTE);
+        if (match) {
+          this.usedClienteNumbers.add(parseInt(match[1], 10));
+        }
+      }
+
+      console.log(
+        `🔄 Sincronizado desde Google Contacts: ${this.knownContacts.size} contactos (${this.usedClienteNumbers.size} con numeración "Cliente N")`,
       );
-      this.blockedNumbers = new Set(res.data.contacts);
-      console.log(`🚫 Números bloqueados: ${this.blockedNumbers.size}`);
-    } catch (err) {
-      console.error(`❌ Error cargando bloqueados: ${err.message}`);
+    } catch (err: any) {
+      console.error(
+        `❌ Error sincronizando desde Google Contacts: ${err.message}`,
+      );
     }
   }
 
-  isBlocked(phone: string): boolean {
-    return this.blockedNumbers.has(phone.trim());
+  /**
+   * Devuelve el primer número disponible desde el 1 hacia arriba que no
+   * esté en uso (rellena huecos de contactos borrados antes de asignar
+   * uno nuevo al final de la secuencia).
+   */
+  private getNextClienteNumber(): number {
+    let n = 1;
+    while (this.usedClienteNumbers.has(n)) n++;
+    return n;
   }
 
-  registerIfNew(contactId: string, nombre: string): void {
-    const phone = contactId.trim();
+  exists(phone: string): boolean {
+    return this.knownContacts.has(normalizePhone(phone));
+  }
 
-    if (this.isBlocked(phone)) return;
-    if (this.knownContacts.has(phone)) return;
+  /**
+   * Registra un contacto nuevo si su teléfono no existe todavía.
+   * El nombre se asigna automáticamente como "Cliente N", usando el
+   * primer número libre disponible (rellenando huecos primero).
+   */
+  async registerIfNew(contactId: string): Promise<void> {
+    const phone = normalizePhone(contactId);
+
+    if (this.exists(phone)) return;
+
+    const numero = this.getNextClienteNumber();
+    const nombre = `Cliente ${numero}`;
 
     this.knownContacts.add(phone);
+    this.usedClienteNumbers.add(numero);
 
-    axios
-      .post(
-        `${process.env.INTRANET_URL}/customers/from-bot`,
-        { name: nombre, contact: phone },
-        {
-          headers: { 'x-api-key': process.env.INTRANET_API_KEY },
-          timeout: 5000,
-        },
-      )
-      .then(() => console.log(`👤 Contacto → intranet: [${phone}] ${nombre}`))
-      .catch((err) => {
-        this.knownContacts.delete(phone);
-        console.error(`❌ Error contacto intranet: ${err.message}`);
-      });
+    try {
+      await this.sheetsService.registerContact({ contactId: phone, nombre });
+      await this.contactsService.createContact({ contactId: phone, nombre });
+      console.log(`👤 Contacto nuevo registrado: [${phone}] ${nombre}`);
+    } catch (err: any) {
+      this.knownContacts.delete(phone);
+      this.usedClienteNumbers.delete(numero);
+      console.error(`❌ Error registrando contacto: ${err.message}`);
+    }
   }
 }
